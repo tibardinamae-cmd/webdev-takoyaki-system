@@ -1,7 +1,9 @@
-const express = require("express");
-const cors = require("cors");
-const mysql = require("mysql2");
-require("dotenv").config();
+import express from "express";
+import cors from "cors";
+import mysql from "mysql2";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// MySQL Connection (Aiven)
+// MySQL Connection
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -21,10 +23,18 @@ const db = mysql.createPool({
   },
 });
 
+// Test Connection
+db.getConnection((err) => {
+  if (err) {
+    console.error("❌ MySQL Connection Failed:", err);
+  } else {
+    console.log("✅ Connected to Aiven MySQL");
+  }
+});
+
 // ==================== AUTO CREATE TABLES ====================
 
 const createTables = () => {
-  // Users Table
   db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -37,7 +47,6 @@ const createTables = () => {
     )
   `);
 
-  // Orders Table
   db.query(`
     CREATE TABLE IF NOT EXISTS orders (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,12 +57,10 @@ const createTables = () => {
       notes TEXT,
       status ENUM('Order Received', 'Preparing', 'Cooking', 'On the Way', 'Delivered') 
              DEFAULT 'Order Received',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // Order Items Table
   db.query(`
     CREATE TABLE IF NOT EXISTS order_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -61,47 +68,28 @@ const createTables = () => {
       item_name VARCHAR(100),
       quantity INT,
       price DECIMAL(10,2),
-      notes TEXT,
-      FOREIGN KEY (order_id) REFERENCES orders(id)
+      notes TEXT
     )
   `);
 
-  // Menu Items Table (Optional)
-  db.query(`
-    CREATE TABLE IF NOT EXISTS menu_items (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(100) NOT NULL,
-      description TEXT,
-      price DECIMAL(10,2) NOT NULL,
-      category ENUM('classic', 'premium', 'spicy', 'sides', 'drinks') NOT NULL,
-      image_url TEXT,
-      popular BOOLEAN DEFAULT FALSE,
-      spicy BOOLEAN DEFAULT FALSE,
-      vegetarian BOOLEAN DEFAULT FALSE,
-      pieces_per_serving INT DEFAULT 6,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  console.log("✅ All MySQL tables checked/created successfully");
+  console.log("✅ All MySQL tables are ready");
 };
 
-// Call table creation on server start
 createTables();
 
 // ==================== API ROUTES ====================
 
-// Register User
+// Register
 app.post("/api/register", (req, res) => {
   const { name, email, phone, password } = req.body;
   const sql = "INSERT INTO users (name, email, phone, password) VALUES (?, ?, ?, ?)";
   db.query(sql, [name, email, phone, password], (err, result) => {
-    if (err) return res.status(400).json({ error: "User already exists or invalid data" });
+    if (err) return res.status(400).json({ error: "User already exists" });
     res.json({ id: result.insertId, name, email, phone });
   });
 });
 
-// Login User
+// Login
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
   const sql = "SELECT * FROM users WHERE email = ? AND password = ?";
@@ -122,15 +110,14 @@ app.post("/api/orders", (req, res) => {
   `;
   db.query(sql, [user_id, JSON.stringify(items), total, address, city, notes], (err, result) => {
     if (err) return res.status(500).json({ error: "Failed to create order" });
-    res.json({ id: result.insertId, status: "Order Received" });
+    res.json({ id: result.insertId });
   });
 });
 
-// Get Orders by User
+// Get Orders
 app.get("/api/orders/:userId", (req, res) => {
-  const { userId } = req.params;
   const sql = "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC";
-  db.query(sql, [userId], (err, results) => {
+  db.query(sql, [req.params.userId], (err, results) => {
     if (err) return res.status(500).json({ error: "Failed to fetch orders" });
     res.json(results);
   });
@@ -138,11 +125,9 @@ app.get("/api/orders/:userId", (req, res) => {
 
 // Update Order Status (Admin)
 app.put("/api/orders/:id/status", (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
   const sql = "UPDATE orders SET status = ? WHERE id = ?";
-  db.query(sql, [status, id], (err) => {
-    if (err) return res.status(500).json({ error: "Failed to update status" });
+  db.query(sql, [req.body.status, req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: "Failed to update" });
     res.json({ message: "Status updated" });
   });
 });
